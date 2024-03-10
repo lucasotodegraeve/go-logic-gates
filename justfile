@@ -4,4 +4,4 @@ _default:
 	just --list
 
 watch:
-	watchexec -e go -c clear go run	src/main.go
+	watchexec -c clear -e go -r go run main.go
