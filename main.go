@@ -131,6 +131,22 @@ func (canvas *Canvas) drawGates() {
 	}
 }
 
+func (canvas *Canvas) drawGrid() {
+	var size int32 = 50
+	w, h := GetScreenWidth(), GetScreenHeight()
+	v1 := GetScreenToWorld2D(Vector2{0, 0}, canvas.camera)
+	v2 := GetScreenToWorld2D(Vector2{float32(w), float32(h)}, canvas.camera)
+
+	v_int := int32(v1.X)
+	for i := v_int - v_int%size; i < int32(v2.X); i += size {
+		DrawLine(i, int32(v1.Y), i, int32(v2.Y), Gray)
+	}
+	v_int = int32(v1.Y)
+	for i := v_int - v_int%size; i < int32(v2.Y); i += size {
+		DrawLine(int32(v1.X), i, int32(v2.X), i, Gray)
+	}
+}
+
 func (canvas *Canvas) builderScreen() {
 	switch canvas.state {
 	case normal:
@@ -140,6 +156,7 @@ func (canvas *Canvas) builderScreen() {
 	}
 
 	BeginMode2D(canvas.camera)
+	canvas.drawGrid()
 	canvas.drawAttached()
 	canvas.drawGates()
 	EndMode2D()
@@ -213,7 +230,7 @@ func (canvas *Canvas) attachedState() {
 }
 
 func (canvas *Canvas) placeAttached() {
-	canvas.attached.position = GetMousePosition()
+	canvas.attached.position = GetScreenToWorld2D(GetMousePosition(), canvas.camera)
 	canvas.gates = append(canvas.gates, *canvas.attached)
 	canvas.attached = nil
 }
@@ -222,14 +239,14 @@ func (canvas *Canvas) drawAttached() {
 	if canvas.attached == nil {
 		return
 	}
-	mouse := GetMousePosition()
+	mouse := GetScreenToWorld2D(GetMousePosition(), canvas.camera)
 	drawGate(canvas.attached.gate, mouse)
 }
 
 func runnerScreen() {}
 
 func main() {
-	InitWindow(800, 450, "raylib [core] example - basic window")
+	InitWindow(800, 450, "Logic gates")
 	defer CloseWindow()
 
 	SetTargetFPS(60)
