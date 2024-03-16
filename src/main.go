@@ -25,6 +25,15 @@ const (
 	Xor
 )
 
+var logicTypes = [...]Gate{
+	And,
+	Or,
+	Not,
+	Nand,
+	Nor,
+	Xor,
+}
+
 const (
 	normal CanvasState = iota
 	attached
@@ -33,8 +42,10 @@ const (
 const screenWidth = 800
 const screenHeight = 450
 const canvasButtonHeight = 50
-const gateWidth = 100
+const gateWidth = 110
 const gateHeight = 70
+const buttonWidth = 110
+const buttonMargin = 10
 
 type RuntimeNetwork struct {
 	gates       []Gate
@@ -144,12 +155,14 @@ func (canvas *Canvas) drawGrid() {
 
 func (canvas *Canvas) builderScreen() {
 	BeginTextureMode(canvas.guiRenderTexture)
-	button := gateButton(NewRectangle(0, 0, 100, canvasButtonHeight), "AND")
-	EndTextureMode()
+	for i, gate := range logicTypes {
+		button := gateButton(NewRectangle(float32(i*(buttonWidth+buttonMargin)), 0, buttonWidth, canvasButtonHeight), gate.String())
 
-	if button && canvas.attached == nil {
-		canvas.attachGate(And)
+		if button && canvas.attached == nil {
+			canvas.attachGate(gate)
+		}
 	}
+	EndTextureMode()
 
 	switch canvas.state {
 	case normal:
@@ -185,9 +198,7 @@ func gateButton(rect Rectangle, s string) bool {
 		}
 
 	}
-
 	drawNamedRectangle(rect, s, lineColor, color, DarkGray)
-
 	return inside && down
 }
 
