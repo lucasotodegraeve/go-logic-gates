@@ -54,11 +54,11 @@ type RuntimeNetwork struct {
 	connections []*bool
 }
 
-type CanvasGate struct {
+type canvasGate struct {
 	logic       Gate
 	inputs      [2]bool
 	output      bool
-	connections []*CanvasGate
+	connections []*canvasGate
 	position    Vector2
 }
 
@@ -66,13 +66,14 @@ type Canvas struct {
 	guiRenderTexture    RenderTexture2D
 	canvasCamera        Camera2D
 	canvasRenderTexture RenderTexture2D
-	gates               []CanvasGate
-	attached            *CanvasGate
+	gates               []canvasGate
+	attached            *canvasGate
 	state               CanvasState
+	selected            *canvasGate
 }
 
-func newCanvasGate(g Gate) *CanvasGate {
-	return &CanvasGate{
+func newCanvasGate(g Gate) *canvasGate {
+	return &canvasGate{
 		logic: g,
 	}
 }
@@ -82,7 +83,7 @@ func NewCanvas() Canvas {
 		guiRenderTexture:    LoadRenderTexture(screenWidth, canvasButtonHeight),
 		canvasCamera:        Camera2D{Zoom: 1},
 		canvasRenderTexture: LoadRenderTexture(screenWidth, screenHeight),
-		gates:               []CanvasGate{},
+		gates:               []canvasGate{},
 		attached:            nil,
 	}
 }
@@ -107,17 +108,23 @@ func (g Gate) String() string {
 	case Xor:
 		return "XOR"
 	default:
-		panic(fmt.Sprintf("Missing String for Gate of type", g))
+		panic(fmt.Sprintf("Missing String for Gate of type %#v", g))
 	}
 }
 
-func drawGate(gate *CanvasGate) {
+func drawGate(gate *canvasGate) {
 	drawNamedRectangle(NewRectangle(gate.position.X-gateWidth/2, gate.position.Y-gateHeight/2, gateWidth, gateHeight), gate.logic.String(), DarkGray, Gray, Black)
 	var size float32 = 10
 	var segments int32 = 5
 	DrawCircleSector(Vector2{X: gate.position.X - gateWidth/2, Y: gate.position.Y + gateHeight*1/4 - gateHeight/2}, size, 90, 270, segments, DarkGray)
 	DrawCircleSector(Vector2{X: gate.position.X - gateWidth/2, Y: gate.position.Y + gateHeight*3/4 - gateHeight/2}, size, 90, 270, segments, DarkGray)
 	DrawCircleSector(Vector2{X: gate.position.X + gateWidth/2, Y: gate.position.Y + gateHeight*1/2 - gateHeight/2}, size, -90, 90, segments, DarkGray)
+}
+
+func (canvas *Canvas) drawSelected() {
+	if canvas.selected != nil {
+		DrawRectangleLines(int32(canvas.selected.position.X-gateWidth/2), int32(canvas.selected.position.Y-gateHeight/2), gateWidth, gateHeight, Red)
+	}
 }
 
 func drawNamedRectangle(rect Rectangle, text string, stroke color.RGBA, fill color.RGBA, textColor color.RGBA) {
@@ -140,8 +147,8 @@ func (canvas *Canvas) drawGates() {
 func (canvas *Canvas) drawGrid() {
 	var size int32 = 50
 	w, h := GetScreenWidth(), GetScreenHeight()
-	v1 := GetScreenToWorld2D(Vector2{0, 0}, canvas.canvasCamera)
-	v2 := GetScreenToWorld2D(Vector2{float32(w), float32(h)}, canvas.canvasCamera)
+	v1 := GetScreenToWorld2D(Vector2{X: 0, Y: 0}, canvas.canvasCamera)
+	v2 := GetScreenToWorld2D(Vector2{X: float32(w), Y: float32(h)}, canvas.canvasCamera)
 
 	v_int := int32(v1.X)
 	for i := v_int - v_int%size; i < int32(v2.X); i += size {
@@ -177,6 +184,7 @@ func (canvas *Canvas) builderScreen() {
 	canvas.drawGrid()
 	canvas.drawAttached()
 	canvas.drawGates()
+	canvas.drawSelected()
 	EndMode2D()
 	EndTextureMode()
 }
