@@ -28,6 +28,10 @@ const (
 	attached
 )
 
+const screenWidth = 800
+const screenHeight = 450
+const canvasButtonHeight = 50
+
 type RuntimeNetwork struct {
 	gates       []Gate
 	inputs      [][2]bool
@@ -44,10 +48,12 @@ type CanvasGate struct {
 }
 
 type Canvas struct {
-	camera   Camera2D
-	gates    []CanvasGate
-	attached *CanvasGate
-	state    CanvasState
+	guiRenderTexture    RenderTexture2D
+	canvasCamera        Camera2D
+	canvasRenderTexture RenderTexture2D
+	gates               []CanvasGate
+	attached            *CanvasGate
+	state               CanvasState
 }
 
 func newCanvasGate(g Gate) *CanvasGate {
@@ -58,9 +64,11 @@ func newCanvasGate(g Gate) *CanvasGate {
 
 func NewCanvas() Canvas {
 	return Canvas{
-		camera:   Camera2D{Zoom: 1},
-		gates:    []CanvasGate{},
-		attached: nil,
+		guiRenderTexture:    LoadRenderTexture(screenWidth, canvasButtonHeight),
+		canvasCamera:        Camera2D{Zoom: 1},
+		canvasRenderTexture: LoadRenderTexture(screenWidth, screenHeight),
+		gates:               []CanvasGate{},
+		attached:            nil,
 	}
 }
 
@@ -91,13 +99,13 @@ func (g Gate) String() string {
 func drawGate(g Gate, pos Vector2) {
 	switch g {
 	case And:
-		drawGateAnd(pos)
+		drawAndGate(pos)
 	default:
 		panic(fmt.Sprintf("Drawing not implemented for Gate of type %s", g))
 	}
 }
 
-func drawGateAnd(pos Vector2) {
+func drawAndGate(pos Vector2) {
 	var h, stroke float32 = 100, 10
 	w := h / 2
 	lines := [3][2]Vector2{
@@ -114,9 +122,10 @@ func drawGateAnd(pos Vector2) {
 
 	DrawRing(Vector2Add(pos, Vector2{X: w, Y: h / 2}), w-stroke/2, w+stroke/2, -90, 90, 10, Black)
 
-	dots := [2]Vector2{
+	dots := [3]Vector2{
 		{X: -stroke / 2, Y: h / 4},
 		{X: -stroke / 2, Y: h * 3 / 4},
+		{X: 2*w + stroke/2, Y: h / 2},
 	}
 
 	for _, dot := range dots {
@@ -134,8 +143,8 @@ func (canvas *Canvas) drawGates() {
 func (canvas *Canvas) drawGrid() {
 	var size int32 = 50
 	w, h := GetScreenWidth(), GetScreenHeight()
-	v1 := GetScreenToWorld2D(Vector2{0, 0}, canvas.camera)
-	v2 := GetScreenToWorld2D(Vector2{float32(w), float32(h)}, canvas.camera)
+	v1 := GetScreenToWorld2D(Vector2{0, 0}, canvas.canvasCamera)
+	v2 := GetScreenToWorld2D(Vector2{float32(w), float32(h)}, canvas.canvasCamera)
 
 	v_int := int32(v1.X)
 	for i := v_int - v_int%size; i < int32(v2.X); i += size {
@@ -148,6 +157,15 @@ func (canvas *Canvas) drawGrid() {
 }
 
 func (canvas *Canvas) builderScreen() {
+
+	BeginTextureMode(canvas.guiRenderTexture)
+	button := gateButton(NewRectangle(0, 0, 100, canvasButtonHeight), "AND")
+	EndTextureMode()
+
+	if button && canvas.attached == nil {
+		canvas.attachGate(And)
+	}
+
 	switch canvas.state {
 	case normal:
 		canvas.normalState()
@@ -155,17 +173,14 @@ func (canvas *Canvas) builderScreen() {
 		canvas.attachedState()
 	}
 
-	BeginMode2D(canvas.camera)
+	BeginTextureMode(canvas.canvasRenderTexture)
+	ClearBackground(RayWhite)
+	BeginMode2D(canvas.canvasCamera)
 	canvas.drawGrid()
 	canvas.drawAttached()
 	canvas.drawGates()
 	EndMode2D()
-
-	button := gateButton(NewRectangle(0, 0, 100, 50), "AND")
-
-	if button && canvas.attached == nil {
-		canvas.attachGate(And)
-	}
+	EndTextureMode()
 }
 
 func gateButton(rect Rectangle, s string) bool {
@@ -198,26 +213,26 @@ func gateButton(rect Rectangle, s string) bool {
 func (canvas *Canvas) normalState() {
 	if IsMouseButtonDown(MouseButtonLeft) {
 		delta := GetMouseDelta()
-		delta = Vector2Scale(delta, -1/canvas.camera.Zoom)
-		canvas.camera.Target = Vector2Add(canvas.camera.Target, delta)
+		delta = Vector2Scale(delta, -1/canvas.canvasCamera.Zoom)
+		canvas.canvasCamera.Target = Vector2Add(canvas.canvasCamera.Target, delta)
 	}
 	wheel := GetMouseWheelMove()
 	if wheel != 0 {
-		mouseWorldPos := GetScreenToWorld2D(GetMousePosition(), canvas.camera)
+		mouseWorldPos := GetScreenToWorld2D(GetMousePosition(), canvas.canvasCamera)
 
 		// Set the offset to where the mouse is
-		canvas.camera.Offset = GetMousePosition()
+		canvas.canvasCamera.Offset = GetMousePosition()
 
 		// Set the target to match, so that the camera maps the world space point
 		// under the cursor to the screen space point under the cursor at any zoom
-		canvas.camera.Target = mouseWorldPos
+		canvas.canvasCamera.Target = mouseWorldPos
 
 		// Zoom increment
 		var zoomIncrement float32 = 0.125
 
-		canvas.camera.Zoom += (wheel * zoomIncrement)
-		if canvas.camera.Zoom < zoomIncrement {
-			canvas.camera.Zoom = zoomIncrement
+		canvas.canvasCamera.Zoom += (wheel * zoomIncrement)
+		if canvas.canvasCamera.Zoom < zoomIncrement {
+			canvas.canvasCamera.Zoom = zoomIncrement
 		}
 	}
 }
@@ -230,7 +245,7 @@ func (canvas *Canvas) attachedState() {
 }
 
 func (canvas *Canvas) placeAttached() {
-	canvas.attached.position = GetScreenToWorld2D(GetMousePosition(), canvas.camera)
+	canvas.attached.position = GetScreenToWorld2D(GetMousePosition(), canvas.canvasCamera)
 	canvas.gates = append(canvas.gates, *canvas.attached)
 	canvas.attached = nil
 }
@@ -239,14 +254,14 @@ func (canvas *Canvas) drawAttached() {
 	if canvas.attached == nil {
 		return
 	}
-	mouse := GetScreenToWorld2D(GetMousePosition(), canvas.camera)
+	mouse := GetScreenToWorld2D(GetMousePosition(), canvas.canvasCamera)
 	drawGate(canvas.attached.gate, mouse)
 }
 
 func runnerScreen() {}
 
 func main() {
-	InitWindow(800, 450, "Logic gates")
+	InitWindow(screenWidth, screenHeight, "Logic gates")
 	defer CloseWindow()
 
 	SetTargetFPS(60)
@@ -255,15 +270,17 @@ func main() {
 	canvas := NewCanvas()
 
 	for !WindowShouldClose() {
-		BeginDrawing()
-		ClearBackground(RayWhite)
-
 		switch currentScreen {
 		case builder:
 			canvas.builderScreen()
 		case runner:
 			runnerScreen()
 		}
+
+		BeginDrawing()
+		ClearBackground(Black)
+		DrawTextureRec(canvas.canvasRenderTexture.Texture, NewRectangle(0, 0, screenWidth, -screenHeight), Vector2{X: 0, Y: 0}, White)
+		DrawTextureRec(canvas.guiRenderTexture.Texture, NewRectangle(0, 0, screenWidth, -canvasButtonHeight), Vector2{X: 0, Y: 0}, White)
 
 		EndDrawing()
 	}
