@@ -112,12 +112,12 @@ func (g Gate) String() string {
 }
 
 func drawGate(gate *CanvasGate) {
-	drawNamedRectangle(NewRectangle(gate.position.X, gate.position.Y, gateWidth, gateHeight), gate.logic.String(), DarkGray, Gray, Black)
+	drawNamedRectangle(NewRectangle(gate.position.X-gateWidth/2, gate.position.Y-gateHeight/2, gateWidth, gateHeight), gate.logic.String(), DarkGray, Gray, Black)
 	var size float32 = 10
 	var segments int32 = 5
-	DrawCircleSector(Vector2{X: gate.position.X, Y: gate.position.Y + gateHeight*1/4}, size, 90, 270, segments, DarkGray)
-	DrawCircleSector(Vector2{X: gate.position.X, Y: gate.position.Y + gateHeight*3/4}, size, 90, 270, segments, DarkGray)
-	DrawCircleSector(Vector2{X: gate.position.X + gateWidth, Y: gate.position.Y + gateHeight*1/2}, size, -90, 90, segments, DarkGray)
+	DrawCircleSector(Vector2{X: gate.position.X - gateWidth/2, Y: gate.position.Y + gateHeight*1/4 - gateHeight/2}, size, 90, 270, segments, DarkGray)
+	DrawCircleSector(Vector2{X: gate.position.X - gateWidth/2, Y: gate.position.Y + gateHeight*3/4 - gateHeight/2}, size, 90, 270, segments, DarkGray)
+	DrawCircleSector(Vector2{X: gate.position.X + gateWidth/2, Y: gate.position.Y + gateHeight*1/2 - gateHeight/2}, size, -90, 90, segments, DarkGray)
 }
 
 func drawNamedRectangle(rect Rectangle, text string, stroke color.RGBA, fill color.RGBA, textColor color.RGBA) {
