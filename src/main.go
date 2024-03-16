@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"image/color"
+
 	. "github.com/gen2brain/raylib-go/raylib"
 )
 
@@ -31,6 +33,8 @@ const (
 const screenWidth = 800
 const screenHeight = 450
 const canvasButtonHeight = 50
+const gateWidth = 100
+const gateHeight = 70
 
 type RuntimeNetwork struct {
 	gates       []Gate
@@ -40,7 +44,7 @@ type RuntimeNetwork struct {
 }
 
 type CanvasGate struct {
-	gate        Gate
+	logic       Gate
 	inputs      [2]bool
 	output      bool
 	connections []*CanvasGate
@@ -58,7 +62,7 @@ type Canvas struct {
 
 func newCanvasGate(g Gate) *CanvasGate {
 	return &CanvasGate{
-		gate: g,
+		logic: g,
 	}
 }
 
@@ -96,47 +100,29 @@ func (g Gate) String() string {
 	}
 }
 
-func drawGate(g Gate, pos Vector2) {
-	switch g {
-	case And:
-		drawAndGate(pos)
-	default:
-		panic(fmt.Sprintf("Drawing not implemented for Gate of type %s", g))
-	}
+func drawGate(gate *CanvasGate) {
+	drawNamedRectangle(NewRectangle(gate.position.X, gate.position.Y, gateWidth, gateHeight), gate.logic.String(), DarkGray, Gray, Black)
+	var size float32 = 10
+	var segments int32 = 5
+	DrawCircleSector(Vector2{X: gate.position.X, Y: gate.position.Y + gateHeight*1/4}, size, 90, 270, segments, DarkGray)
+	DrawCircleSector(Vector2{X: gate.position.X, Y: gate.position.Y + gateHeight*3/4}, size, 90, 270, segments, DarkGray)
+	DrawCircleSector(Vector2{X: gate.position.X + gateWidth, Y: gate.position.Y + gateHeight*1/2}, size, -90, 90, segments, DarkGray)
 }
 
-func drawAndGate(pos Vector2) {
-	var h, stroke float32 = 100, 10
-	w := h / 2
-	lines := [3][2]Vector2{
-		{Vector2{X: 0, Y: 0}, Vector2{X: 0, Y: h}},
-		{Vector2{X: -stroke / 2, Y: 0}, Vector2{X: w, Y: 0}},
-		{Vector2{X: -stroke / 2, Y: h}, Vector2{X: w, Y: h}},
-	}
-
-	for _, line := range lines {
-		x := Vector2Add(pos, line[0])
-		y := Vector2Add(pos, line[1])
-		DrawLineEx(x, y, stroke, Black)
-	}
-
-	DrawRing(Vector2Add(pos, Vector2{X: w, Y: h / 2}), w-stroke/2, w+stroke/2, -90, 90, 10, Black)
-
-	dots := [3]Vector2{
-		{X: -stroke / 2, Y: h / 4},
-		{X: -stroke / 2, Y: h * 3 / 4},
-		{X: 2*w + stroke/2, Y: h / 2},
-	}
-
-	for _, dot := range dots {
-		c := Vector2Add(pos, dot)
-		DrawCircle(int32(c.X), int32(c.Y), 10, Black)
-	}
+func drawNamedRectangle(rect Rectangle, text string, stroke color.RGBA, fill color.RGBA, textColor color.RGBA) {
+	var strokeSize float32 = 5.0
+	DrawRectangle(int32(rect.X), int32(rect.Y), int32(rect.Width), int32(rect.Height), fill)
+	DrawRectangleLinesEx(rect, strokeSize, stroke)
+	var textSize float32 = 30
+	v := MeasureTextEx(GetFontDefault(), text, textSize, 0)
+	offset_x := (rect.Width - v.X) / 2
+	offset_y := (rect.Height - v.Y) / 2
+	DrawText(text, int32(rect.X+offset_x), int32(rect.Y+offset_y), int32(textSize), textColor)
 }
 
 func (canvas *Canvas) drawGates() {
 	for _, g := range canvas.gates {
-		drawGate(g.gate, g.position)
+		drawGate(&g)
 	}
 }
 
@@ -157,7 +143,6 @@ func (canvas *Canvas) drawGrid() {
 }
 
 func (canvas *Canvas) builderScreen() {
-
 	BeginTextureMode(canvas.guiRenderTexture)
 	button := gateButton(NewRectangle(0, 0, 100, canvasButtonHeight), "AND")
 	EndTextureMode()
@@ -184,13 +169,11 @@ func (canvas *Canvas) builderScreen() {
 }
 
 func gateButton(rect Rectangle, s string) bool {
-	r := rect.ToInt32()
 	mouse := GetMousePosition()
 	inside := CheckCollisionPointRec(mouse, rect)
 	down := IsMouseButtonDown(MouseButtonLeft)
 	color := LightGray
 	lineColor := Gray
-	var stroke float32 = 5.0
 
 	if inside {
 		color = SkyBlue
@@ -203,9 +186,7 @@ func gateButton(rect Rectangle, s string) bool {
 
 	}
 
-	DrawRectangle(r.X, r.Y, r.Width, r.Height, color)
-	DrawRectangleLinesEx(rect, stroke, lineColor)
-	DrawText(s, r.X+int32(stroke), r.Y+int32(stroke), 20, DarkGray)
+	drawNamedRectangle(rect, s, lineColor, color, DarkGray)
 
 	return inside && down
 }
@@ -255,7 +236,8 @@ func (canvas *Canvas) drawAttached() {
 		return
 	}
 	mouse := GetScreenToWorld2D(GetMousePosition(), canvas.canvasCamera)
-	drawGate(canvas.attached.gate, mouse)
+	canvas.attached.position = mouse
+	drawGate(canvas.attached)
 }
 
 func runnerScreen() {}
@@ -281,7 +263,6 @@ func main() {
 		ClearBackground(Black)
 		DrawTextureRec(canvas.canvasRenderTexture.Texture, NewRectangle(0, 0, screenWidth, -screenHeight), Vector2{X: 0, Y: 0}, White)
 		DrawTextureRec(canvas.guiRenderTexture.Texture, NewRectangle(0, 0, screenWidth, -canvasButtonHeight), Vector2{X: 0, Y: 0}, White)
-
 		EndDrawing()
 	}
 }
