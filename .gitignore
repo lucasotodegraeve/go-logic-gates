@@ -1,4 +1,7 @@
 .direnv
 result
 logic-gates
+main
 videos/
+
+.vscode

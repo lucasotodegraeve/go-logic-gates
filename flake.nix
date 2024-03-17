@@ -2,7 +2,7 @@
   description = "Logic gates";
 
   inputs = {
-    nixpkgs.url = "nixpkgs/nixos-23.11";
+    nixpkgs.url = "nixpkgs/nixpkgs-unstable";
   };
 
   outputs = { self, nixpkgs }:
@@ -12,7 +12,7 @@
   in {
     devShells."${system}".default = pkgs.mkShell {
       nativeBuildInputs = with pkgs; [
-        go
+        go_1_22
       ];
       buildInputs = with pkgs; [
         libGL
@@ -24,6 +24,7 @@
         xorg.libXrandr
         xorg.libXinerama
       ];
+      hardeningDisable = [ "all" ];
     };
 
     packages."${system}" = {
