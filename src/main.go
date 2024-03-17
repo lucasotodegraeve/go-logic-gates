@@ -7,9 +7,7 @@ import (
 	. "github.com/gen2brain/raylib-go/raylib"
 )
 
-type Gate int32
 type Screen int32
-type CanvasState int32
 
 const (
 	builder Screen = iota
@@ -25,6 +23,8 @@ const (
 	Xor
 )
 
+type Gate int32
+
 var logicTypes = [...]Gate{
 	And,
 	Or,
@@ -34,16 +34,20 @@ var logicTypes = [...]Gate{
 	Xor,
 }
 
+type CanvasState int32
+
 const (
-	normal CanvasState = iota
+	idle CanvasState = iota
+	dragging
 	attached
+	moveGate
 )
 
 const screenWidth = 800
 const screenHeight = 450
 const canvasButtonHeight = 50
-const gateWidth = 110
-const gateHeight = 70
+const gateWidth float32 = 110
+const gateHeight float32 = 70
 const buttonWidth = 110
 const buttonMargin = 10
 
@@ -66,7 +70,7 @@ type Canvas struct {
 	guiRenderTexture    RenderTexture2D
 	canvasCamera        Camera2D
 	canvasRenderTexture RenderTexture2D
-	gates               []canvasGate
+	gates               []*canvasGate
 	attached            *canvasGate
 	state               CanvasState
 	selected            *canvasGate
@@ -83,7 +87,7 @@ func NewCanvas() Canvas {
 		guiRenderTexture:    LoadRenderTexture(screenWidth, canvasButtonHeight),
 		canvasCamera:        Camera2D{Zoom: 1},
 		canvasRenderTexture: LoadRenderTexture(screenWidth, screenHeight),
-		gates:               []canvasGate{},
+		gates:               []*canvasGate{},
 		attached:            nil,
 	}
 }
@@ -123,7 +127,7 @@ func drawGate(gate *canvasGate) {
 
 func (canvas *Canvas) drawSelected() {
 	if canvas.selected != nil {
-		DrawRectangleLines(int32(canvas.selected.position.X-gateWidth/2), int32(canvas.selected.position.Y-gateHeight/2), gateWidth, gateHeight, Red)
+		DrawRectangleLines(int32(canvas.selected.position.X-gateWidth/2), int32(canvas.selected.position.Y-gateHeight/2), int32(gateWidth), int32(gateHeight), Red)
 	}
 }
 
@@ -140,7 +144,7 @@ func drawNamedRectangle(rect Rectangle, text string, stroke color.RGBA, fill col
 
 func (canvas *Canvas) drawGates() {
 	for _, g := range canvas.gates {
-		drawGate(&g)
+		drawGate(g)
 	}
 }
 
@@ -165,17 +169,24 @@ func (canvas *Canvas) builderScreen() {
 	for i, gate := range logicTypes {
 		button := gateButton(NewRectangle(float32(i*(buttonWidth+buttonMargin)), 0, buttonWidth, canvasButtonHeight), gate.String())
 
-		if button && canvas.attached == nil {
+		if button && canvas.state == idle {
 			canvas.attachGate(gate)
 		}
 	}
 	EndTextureMode()
 
 	switch canvas.state {
-	case normal:
-		canvas.normalState()
+	case idle:
+		canvas.idleState()
+	case dragging:
+		canvas.canvasDrag()
+		if IsMouseButtonReleased(MouseButtonLeft) {
+			canvas.state = idle
+		}
 	case attached:
 		canvas.attachedState()
+	case moveGate:
+		canvas.moveGateState()
 	}
 
 	BeginTextureMode(canvas.canvasRenderTexture)
@@ -184,7 +195,6 @@ func (canvas *Canvas) builderScreen() {
 	canvas.drawGrid()
 	canvas.drawAttached()
 	canvas.drawGates()
-	canvas.drawSelected()
 	EndMode2D()
 	EndTextureMode()
 }
@@ -210,43 +220,83 @@ func gateButton(rect Rectangle, s string) bool {
 	return inside && down
 }
 
-func (canvas *Canvas) normalState() {
-	if IsMouseButtonDown(MouseButtonLeft) {
-		delta := GetMouseDelta()
-		delta = Vector2Scale(delta, -1/canvas.canvasCamera.Zoom)
-		canvas.canvasCamera.Target = Vector2Add(canvas.canvasCamera.Target, delta)
+func (canvas *Canvas) checkCanvasDrag() {
+	if IsMouseButtonDown(MouseButtonLeft) && canvas.state == idle {
+		canvas.state = dragging
 	}
+}
+
+func (canvas *Canvas) canvasDrag() {
+	delta := GetMouseDelta()
+	delta = Vector2Scale(delta, -1/canvas.canvasCamera.Zoom)
+	canvas.canvasCamera.Target = Vector2Add(canvas.canvasCamera.Target, delta)
+}
+
+func (canvas *Canvas) canvasZoom() {
 	wheel := GetMouseWheelMove()
-	if wheel != 0 {
-		mouseWorldPos := GetScreenToWorld2D(GetMousePosition(), canvas.canvasCamera)
+	if wheel == 0 {
+		return
+	}
+	mouseWorldPos := GetScreenToWorld2D(GetMousePosition(), canvas.canvasCamera)
 
-		// Set the offset to where the mouse is
-		canvas.canvasCamera.Offset = GetMousePosition()
+	// Set the offset to where the mouse is
+	canvas.canvasCamera.Offset = GetMousePosition()
 
-		// Set the target to match, so that the camera maps the world space point
-		// under the cursor to the screen space point under the cursor at any zoom
-		canvas.canvasCamera.Target = mouseWorldPos
+	// Set the target to match, so that the camera maps the world space point
+	// under the cursor to the screen space point under the cursor at any zoom
+	canvas.canvasCamera.Target = mouseWorldPos
 
-		// Zoom increment
-		var zoomIncrement float32 = 0.125
+	// Zoom increment
+	var zoomIncrement float32 = 0.125
 
-		canvas.canvasCamera.Zoom += (wheel * zoomIncrement)
-		if canvas.canvasCamera.Zoom < zoomIncrement {
-			canvas.canvasCamera.Zoom = zoomIncrement
+	canvas.canvasCamera.Zoom += (wheel * zoomIncrement)
+	if canvas.canvasCamera.Zoom < zoomIncrement {
+		canvas.canvasCamera.Zoom = zoomIncrement
+	}
+}
+
+func (canvas *Canvas) checkGateMove(gate *canvasGate) {
+	if !IsMouseButtonDown(MouseButtonLeft) {
+		return
+	}
+	canvas.selected = gate
+	canvas.state = moveGate
+}
+
+func (canvas *Canvas) idleState() {
+	mouse := GetMousePosition()
+	mouse = GetScreenToWorld2D(mouse, canvas.canvasCamera)
+	for _, g := range canvas.gates {
+		rect := NewRectangle(g.position.X-gateWidth/2, g.position.Y-gateHeight/2, gateWidth, gateHeight)
+		hovered := CheckCollisionPointRec(mouse, rect)
+		if hovered {
+			canvas.checkGateMove(g)
 		}
 	}
+	canvas.checkCanvasDrag()
+	canvas.canvasZoom()
 }
 
 func (canvas *Canvas) attachedState() {
 	if IsMouseButtonReleased(MouseButtonLeft) {
 		canvas.placeAttached()
-		canvas.state = normal
+		canvas.state = idle
+	}
+}
+
+func (canvas *Canvas) moveGateState() {
+	delta := GetMouseDelta()
+	delta = Vector2Scale(delta, 1/canvas.canvasCamera.Zoom)
+	canvas.selected.position = Vector2Add(canvas.selected.position, delta)
+	if IsMouseButtonReleased(MouseButtonLeft) {
+		canvas.selected = nil
+		canvas.state = idle
 	}
 }
 
 func (canvas *Canvas) placeAttached() {
 	canvas.attached.position = GetScreenToWorld2D(GetMousePosition(), canvas.canvasCamera)
-	canvas.gates = append(canvas.gates, *canvas.attached)
+	canvas.gates = append(canvas.gates, canvas.attached)
 	canvas.attached = nil
 }
 
