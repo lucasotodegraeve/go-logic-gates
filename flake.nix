@@ -11,8 +11,11 @@
     pkgs = nixpkgs.legacyPackages."${system}";
   in {
     devShells."${system}".default = pkgs.mkShell {
-      nativeBuildInputs = with pkgs; [
+      packages = with pkgs; [
         go_1_22
+        gopls
+      ];
+      nativeBuildInputs = with pkgs; [
       ];
       buildInputs = with pkgs; [
         libGL
