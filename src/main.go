@@ -263,14 +263,23 @@ func (canvas *Canvas) checkGateMove(gate *canvasGate) {
 	canvas.state = moveGate
 }
 
+func (canvas *Canvas) checkGateDelete(i int) {
+	if IsMouseButtonDown(MouseButtonRight) {
+		canvas.gates[i] = canvas.gates[len(canvas.gates)-1]
+		canvas.gates[len(canvas.gates)-1] = nil
+		canvas.gates = canvas.gates[:len(canvas.gates)-1]
+	}
+}
+
 func (canvas *Canvas) idleState() {
 	mouse := GetMousePosition()
 	mouse = GetScreenToWorld2D(mouse, canvas.canvasCamera)
-	for _, g := range canvas.gates {
+	for i, g := range canvas.gates {
 		rect := NewRectangle(g.position.X-gateWidth/2, g.position.Y-gateHeight/2, gateWidth, gateHeight)
 		hovered := CheckCollisionPointRec(mouse, rect)
 		if hovered {
 			canvas.checkGateMove(g)
+			canvas.checkGateDelete(i)
 		}
 	}
 	canvas.checkCanvasDrag()
