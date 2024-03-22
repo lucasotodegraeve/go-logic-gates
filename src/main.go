@@ -14,6 +14,8 @@ const (
 	runner
 )
 
+type Logic int32
+
 const (
 	And Logic = iota
 	Or
@@ -21,9 +23,15 @@ const (
 	Nand
 	Nor
 	Xor
+	Switch
+	Out
 )
 
-type Logic int32
+type gateTemplate struct {
+	logic     Logic
+	n_inputs  inputSocketIndex
+	n_outputs outputSocketIndex
+}
 
 var logicTypes = [...]Logic{
 	And,
@@ -32,6 +40,19 @@ var logicTypes = [...]Logic{
 	Nand,
 	Nor,
 	Xor,
+	Switch,
+	Out,
+}
+
+var gateTemplates = [...]gateTemplate{
+	{And, 2, 1},
+	{Or, 2, 1},
+	{Nand, 2, 1},
+	{Nor, 2, 1},
+	{Xor, 2, 1},
+	{Not, 1, 1},
+	{Switch, 0, 1},
+	{Out, 1, 0},
 }
 
 type socketIndex uint32
@@ -53,7 +74,7 @@ const screenHeight = 450
 const canvasButtonHeight = 50
 const gateWidth float32 = 110
 const gateHeight float32 = 70
-const buttonWidth = 110
+const buttonWidth = 90
 const buttonMargin = 10
 const socketRadius float32 = 12
 const linkStroke float32 = 10
@@ -106,9 +127,9 @@ func newOutputSocket(gate *canvasGate, index outputSocketIndex) canvasOutputSock
 	return canvasOutputSocket{gate, index, make([]*canvasInputSocket, 0)}
 }
 
-func newCanvasGate(g Logic) *canvasGate {
-	n_inputs := inputSocketIndex(2)
-	n_outputs := outputSocketIndex(1)
+func newCanvasGate(g Logic, n_inputs inputSocketIndex, n_outputs outputSocketIndex) *canvasGate {
+	// n_inputs := inputSocketIndex(2)
+	// n_outputs := outputSocketIndex(1)
 	gate := &canvasGate{
 		logic:         g,
 		n_inputs:      n_inputs,
@@ -138,8 +159,8 @@ func NewCanvas() Canvas {
 	}
 }
 
-func (canvas *Canvas) attachGate(g Logic) {
-	canvas.contextGate = newCanvasGate(g)
+func (canvas *Canvas) attachGate(template gateTemplate) {
+	canvas.contextGate = newCanvasGate(template.logic, template.n_inputs, template.n_outputs)
 	canvas.state = attached
 }
 
@@ -157,21 +178,18 @@ func (g Logic) String() string {
 		return "NOR"
 	case Xor:
 		return "XOR"
+	case Switch:
+		return "SWITCH"
+	case Out:
+		return "OUT"
 	default:
 		panic(fmt.Sprintf("Missing String for Gate of type %#v", g))
 	}
 }
 
 func (gate *canvasGate) getInputSocketPlacement(i inputSocketIndex) Vector2 {
-	var offset Vector2
-	switch i {
-	case 0:
-		offset = Vector2{X: -gateWidth / 2, Y: -gateHeight/2 + gateHeight*1/4}
-	case 1:
-		offset = Vector2{X: -gateWidth / 2, Y: -gateHeight/2 + gateHeight*3/4}
-	default:
-		panic(fmt.Sprintf("Inputsocket with value %d out of range", i))
-	}
+	unit := gateHeight / float32(gate.n_inputs)
+	offset := Vector2{X: -gateWidth / 2, Y: -gateHeight/2 + unit/2 + float32(i)*unit}
 	return Vector2Add(gate.position, offset)
 }
 
@@ -211,12 +229,14 @@ func drawNamedRectangle(rect Rectangle, text string, stroke color.RGBA, fill col
 	var strokeSize float32 = 5.0
 	DrawRectangleV(Vector2{X: rect.X, Y: rect.Y}, Vector2{X: rect.Width, Y: rect.Height}, fill)
 	DrawRectangleLinesEx(rect, strokeSize, stroke)
-	var textSize float32 = 30
+	var textSize float32 = 20
 	v := MeasureTextEx(GetFontDefault(), text, textSize, 0)
 	offset_x := (rect.Width - v.X) / 2
 	offset_y := (rect.Height - v.Y) / 2
 	DrawText(text, int32(rect.X+offset_x), int32(rect.Y+offset_y), int32(textSize), textColor)
 }
+
+func drawSwitch() {}
 
 func (canvas *Canvas) drawGates() {
 	for _, g := range canvas.gates {
@@ -263,11 +283,11 @@ func (canvas *Canvas) drawLinks() {
 
 func (canvas *Canvas) builderScreen() {
 	BeginTextureMode(canvas.guiRenderTexture)
-	for i, gate := range logicTypes {
-		button := gateButton(NewRectangle(float32(i*(buttonWidth+buttonMargin)), 0, buttonWidth, canvasButtonHeight), gate.String())
+	for i, template := range gateTemplates {
+		button := gateButton(NewRectangle(float32(i*(buttonWidth+buttonMargin)), 0, buttonWidth, canvasButtonHeight), template.logic.String())
 
 		if button && canvas.state == idle {
-			canvas.attachGate(gate)
+			canvas.attachGate(template)
 		}
 	}
 	EndTextureMode()
@@ -288,6 +308,10 @@ func (canvas *Canvas) builderScreen() {
 		canvas.createLinkState()
 	}
 
+	canvas.draw()
+}
+
+func (canvas *Canvas) draw() {
 	BeginTextureMode(canvas.canvasRenderTexture)
 	ClearBackground(RayWhite)
 	BeginMode2D(canvas.canvasCamera)
@@ -504,7 +528,15 @@ func (canvas *Canvas) drawAttached() {
 	drawGate(canvas.contextGate)
 }
 
-func runnerScreen() {}
+func (canvas *Canvas) runnerScreen() {
+	canvas.draw()
+}
+
+func (canvas *Canvas) clearGui() {
+	BeginTextureMode(canvas.guiRenderTexture)
+	ClearBackground(color.RGBA{0, 0, 0, 0})
+	EndTextureMode()
+}
 
 func main() {
 	InitWindow(screenWidth, screenHeight, "Logic gates")
@@ -516,11 +548,23 @@ func main() {
 	canvas := NewCanvas()
 
 	for !WindowShouldClose() {
+
+		if IsKeyPressed(KeyEnter) {
+			fmt.Println("switch")
+			switch currentScreen {
+			case builder:
+				currentScreen = runner
+				canvas.clearGui()
+			case runner:
+				currentScreen = builder
+			}
+		}
+
 		switch currentScreen {
 		case builder:
 			canvas.builderScreen()
 		case runner:
-			runnerScreen()
+			canvas.runnerScreen()
 		}
 
 		BeginDrawing()
