@@ -71,16 +71,12 @@ type canvasOutputSocket struct {
 }
 
 type canvasGate struct {
-	logic     Logic
-	n_inputs  inputSocketIndex
-	n_outputs outputSocketIndex
-	// inputs        []bool
-	// outputs       []bool
+	logic         Logic
+	n_inputs      inputSocketIndex
+	n_outputs     outputSocketIndex
 	outputSockets []canvasOutputSocket
 	inputSockets  []canvasInputSocket
-	// outputLinks []*canvasLink
-	// inputLinks  []*canvasLink
-	position Vector2
+	position      Vector2
 }
 
 type canvasLink struct {
@@ -94,8 +90,6 @@ type Canvas struct {
 	canvasCamera        Camera2D
 	canvasRenderTexture RenderTexture2D
 	gates               []*canvasGate
-	attached            *canvasGate
-	selected            *canvasGate
 	contextGate         *canvasGate
 	contextLink         *canvasLink
 }
@@ -116,12 +110,9 @@ func newCanvasGate(g Logic) *canvasGate {
 	n_inputs := inputSocketIndex(2)
 	n_outputs := outputSocketIndex(1)
 	gate := &canvasGate{
-		logic:     g,
-		n_inputs:  n_inputs,
-		n_outputs: n_outputs,
-		// inputs:    nil,
-		// outputs:   nil,
-		// outputLinks: make([]*canvasLink, 0),
+		logic:         g,
+		n_inputs:      n_inputs,
+		n_outputs:     n_outputs,
 		inputSockets:  make([]canvasInputSocket, n_inputs),
 		outputSockets: make([]canvasOutputSocket, n_outputs),
 		position:      Vector2{X: 0, Y: 0},
@@ -143,14 +134,12 @@ func NewCanvas() Canvas {
 		canvasCamera:        Camera2D{Zoom: 1},
 		canvasRenderTexture: LoadRenderTexture(screenWidth, screenHeight),
 		gates:               []*canvasGate{},
-		attached:            nil,
-		selected:            nil,
 		contextGate:         nil,
 	}
 }
 
 func (canvas *Canvas) attachGate(g Logic) {
-	canvas.attached = newCanvasGate(g)
+	canvas.contextGate = newCanvasGate(g)
 	canvas.state = attached
 }
 
@@ -212,11 +201,11 @@ func drawGate(gate *canvasGate) {
 	}
 }
 
-func (canvas *Canvas) drawSelected() {
-	if canvas.selected != nil {
-		DrawRectangleLines(int32(canvas.selected.position.X-gateWidth/2), int32(canvas.selected.position.Y-gateHeight/2), int32(gateWidth), int32(gateHeight), Red)
-	}
-}
+// func (canvas *Canvas) drawSelected() {
+// 	if canvas.selected != nil {
+// 		DrawRectangleLines(int32(canvas.selected.position.X-gateWidth/2), int32(canvas.selected.position.Y-gateHeight/2), int32(gateWidth), int32(gateHeight), Red)
+// 	}
+// }
 
 func drawNamedRectangle(rect Rectangle, text string, stroke color.RGBA, fill color.RGBA, textColor color.RGBA) {
 	var strokeSize float32 = 5.0
@@ -370,7 +359,7 @@ func (canvas *Canvas) checkGateMove(gate *canvasGate) {
 	if !IsMouseButtonDown(MouseButtonLeft) {
 		return
 	}
-	canvas.selected = gate
+	canvas.contextGate = gate
 	canvas.state = movingGate
 }
 
@@ -467,9 +456,9 @@ func (canvas *Canvas) attachedState() {
 func (canvas *Canvas) moveGateState() {
 	delta := GetMouseDelta()
 	delta = Vector2Scale(delta, 1/canvas.canvasCamera.Zoom)
-	canvas.selected.position = Vector2Add(canvas.selected.position, delta)
+	canvas.contextGate.position = Vector2Add(canvas.contextGate.position, delta)
 	if IsMouseButtonReleased(MouseButtonLeft) {
-		canvas.selected = nil
+		canvas.contextGate = nil
 		canvas.state = idle
 	}
 }
@@ -501,18 +490,18 @@ func (canvas *Canvas) createLinkState() {
 }
 
 func (canvas *Canvas) placeAttached() {
-	canvas.attached.position = GetScreenToWorld2D(GetMousePosition(), canvas.canvasCamera)
-	canvas.gates = append(canvas.gates, canvas.attached)
-	canvas.attached = nil
+	canvas.contextGate.position = GetScreenToWorld2D(GetMousePosition(), canvas.canvasCamera)
+	canvas.gates = append(canvas.gates, canvas.contextGate)
+	canvas.contextGate = nil
 }
 
 func (canvas *Canvas) drawAttached() {
-	if canvas.attached == nil {
+	if canvas.contextGate == nil {
 		return
 	}
 	mouse := GetScreenToWorld2D(GetMousePosition(), canvas.canvasCamera)
-	canvas.attached.position = mouse
-	drawGate(canvas.attached)
+	canvas.contextGate.position = mouse
+	drawGate(canvas.contextGate)
 }
 
 func runnerScreen() {}
