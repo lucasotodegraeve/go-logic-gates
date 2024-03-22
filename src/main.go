@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"image/color"
-	"log"
 
 	. "github.com/gen2brain/raylib-go/raylib"
 )
@@ -35,9 +34,9 @@ var logicTypes = [...]Logic{
 	Xor,
 }
 
-type socketID uint32
-type inputSocket socketID
-type outputSocket socketID
+type socketIndex uint32
+type inputSocketIndex socketIndex
+type outputSocketIndex socketIndex
 
 type CanvasState int32
 
@@ -59,21 +58,34 @@ const buttonMargin = 10
 const socketRadius float32 = 12
 const linkStroke float32 = 10
 
+type canvasInputSocket struct {
+	gate  *canvasGate
+	index inputSocketIndex
+	link  *canvasOutputSocket
+}
+
+type canvasOutputSocket struct {
+	gate  *canvasGate
+	index outputSocketIndex
+	links []*canvasInputSocket
+}
+
 type canvasGate struct {
 	logic     Logic
-	n_inputs  inputSocket
-	n_outputs outputSocket
-	inputs    []bool
-	outputs   []bool
-	links     []*canvasLink
-	position  Vector2
+	n_inputs  inputSocketIndex
+	n_outputs outputSocketIndex
+	// inputs        []bool
+	// outputs       []bool
+	outputSockets []canvasOutputSocket
+	inputSockets  []canvasInputSocket
+	// outputLinks []*canvasLink
+	// inputLinks  []*canvasLink
+	position Vector2
 }
 
 type canvasLink struct {
-	fromGate   *canvasGate
-	toGate     *canvasGate
-	fromSocket outputSocket
-	toSocket   inputSocket
+	fromSocket *canvasOutputSocket
+	toSocket   *canvasInputSocket
 }
 
 type Canvas struct {
@@ -92,16 +104,37 @@ func newCanvasLink() *canvasLink {
 	return &canvasLink{}
 }
 
+func newInputSocket(gate *canvasGate, index inputSocketIndex) canvasInputSocket {
+	return canvasInputSocket{gate, index, nil}
+}
+
+func newOutputSocket(gate *canvasGate, index outputSocketIndex) canvasOutputSocket {
+	return canvasOutputSocket{gate, index, make([]*canvasInputSocket, 0)}
+}
+
 func newCanvasGate(g Logic) *canvasGate {
-	return &canvasGate{
+	n_inputs := inputSocketIndex(2)
+	n_outputs := outputSocketIndex(1)
+	gate := &canvasGate{
 		logic:     g,
-		n_inputs:  2,
-		n_outputs: 1,
-		inputs:    nil,
-		outputs:   nil,
-		links:     make([]*canvasLink, 0),
-		position:  Vector2{X: 0, Y: 0},
+		n_inputs:  n_inputs,
+		n_outputs: n_outputs,
+		// inputs:    nil,
+		// outputs:   nil,
+		// outputLinks: make([]*canvasLink, 0),
+		inputSockets:  make([]canvasInputSocket, n_inputs),
+		outputSockets: make([]canvasOutputSocket, n_outputs),
+		position:      Vector2{X: 0, Y: 0},
 	}
+
+	for i := inputSocketIndex(0); i < n_inputs; i++ {
+		gate.inputSockets[i] = newInputSocket(gate, i)
+	}
+	for i := outputSocketIndex(0); i < n_outputs; i++ {
+		gate.outputSockets[i] = newOutputSocket(gate, i)
+	}
+
+	return gate
 }
 
 func NewCanvas() Canvas {
@@ -140,7 +173,7 @@ func (g Logic) String() string {
 	}
 }
 
-func (gate *canvasGate) getInputSocketPlacement(i inputSocket) Vector2 {
+func (gate *canvasGate) getInputSocketPlacement(i inputSocketIndex) Vector2 {
 	var offset Vector2
 	switch i {
 	case 0:
@@ -153,19 +186,27 @@ func (gate *canvasGate) getInputSocketPlacement(i inputSocket) Vector2 {
 	return Vector2Add(gate.position, offset)
 }
 
-func (gate *canvasGate) getOuputSocketPlacement(_ outputSocket) Vector2 {
+func (gate *canvasGate) getOuputSocketPlacement(_ outputSocketIndex) Vector2 {
 	return Vector2Add(gate.position, Vector2{X: gateWidth / 2, Y: 0})
+}
+
+func removeElement[T any](list []*T, i int) []*T {
+	l := len(list)
+	list[i] = list[l-1]
+	list[l-1] = nil
+	list = list[:l-1]
+	return list
 }
 
 func drawGate(gate *canvasGate) {
 	drawNamedRectangle(NewRectangle(gate.position.X-gateWidth/2, gate.position.Y-gateHeight/2, gateWidth, gateHeight), gate.logic.String(), DarkGray, Gray, Black)
 	var segments int32 = 5
 
-	for i := inputSocket(0); i < gate.n_inputs; i++ {
+	for i := inputSocketIndex(0); i < gate.n_inputs; i++ {
 		pos := gate.getInputSocketPlacement(i)
 		DrawCircleSector(pos, socketRadius, 90, 270, segments, DarkGray)
 	}
-	for i := outputSocket(0); i < gate.n_outputs; i++ {
+	for i := outputSocketIndex(0); i < gate.n_outputs; i++ {
 		pos := gate.getOuputSocketPlacement(i)
 		DrawCircleSector(pos, socketRadius, -90, 90, segments, DarkGray)
 	}
@@ -212,18 +253,21 @@ func (canvas *Canvas) drawGrid() {
 
 func (canvas *Canvas) drawLinks() {
 	if canvas.state == creatingLink {
-		i := canvas.contextLink.fromSocket
-		a := canvas.contextLink.fromGate.getOuputSocketPlacement(i)
+		i := canvas.contextLink.fromSocket.index
+		a := canvas.contextLink.fromSocket.gate.getOuputSocketPlacement(i)
 		mouse := GetMousePosition()
 		mouse = GetScreenToWorld2D(mouse, canvas.canvasCamera)
 		DrawLineEx(a, mouse, linkStroke, Black)
 	}
 
 	for _, gate := range canvas.gates {
-		for _, link := range gate.links {
-			a := gate.getInputSocketPlacement(link.toSocket)
-			b := link.fromGate.getOuputSocketPlacement(link.fromSocket)
-			DrawLineEx(a, b, linkStroke, Black)
+		for _, fromSocket := range gate.outputSockets {
+			from := gate.getOuputSocketPlacement(fromSocket.index)
+
+			for _, toSocket := range fromSocket.links {
+				to := toSocket.gate.getInputSocketPlacement(toSocket.index)
+				DrawLineEx(from, to, linkStroke, Black)
+			}
 		}
 	}
 }
@@ -332,9 +376,7 @@ func (canvas *Canvas) checkGateMove(gate *canvasGate) {
 
 func (canvas *Canvas) checkGateDelete(i int) {
 	if IsMouseButtonDown(MouseButtonRight) {
-		canvas.gates[i] = canvas.gates[len(canvas.gates)-1]
-		canvas.gates[len(canvas.gates)-1] = nil
-		canvas.gates = canvas.gates[:len(canvas.gates)-1]
+		canvas.gates = removeElement(canvas.gates, i)
 	}
 }
 
@@ -343,25 +385,8 @@ func isHoveringGate(point Vector2, gate *canvasGate) bool {
 	return CheckCollisionPointRec(point, rect)
 }
 
-// func checkHoverSocket(point Vector2, gate *canvasGate) bool {
-// 	centers := [...]Vector2{
-// 		{X: -gateWidth / 2, Y: -gateHeight/2 + gateHeight*1/4},
-// 		{X: -gateWidth / 2, Y: -gateHeight/2 + gateHeight*3/4},
-// 		{X: +gateWidth / 2, Y: 0},
-// 	}
-
-// 	for _, center := range centers {
-// 		hover := CheckCollisionPointCircle(point, Vector2Add(gate.position, center), socketRadius)
-// 		if hover {
-// 			return true
-// 		}
-// 	}
-
-// 	return false
-// }
-
-func (canvas *Canvas) isHoveringInputSocket(point Vector2, gate *canvasGate) *inputSocket {
-	for i := inputSocket(0); i < gate.n_inputs; i++ {
+func (canvas *Canvas) isHoveringInputSocket(point Vector2, gate *canvasGate) *inputSocketIndex {
+	for i := inputSocketIndex(0); i < gate.n_inputs; i++ {
 		center := gate.getInputSocketPlacement(i)
 		hover := CheckCollisionPointCircle(point, center, socketRadius)
 		if hover {
@@ -372,8 +397,8 @@ func (canvas *Canvas) isHoveringInputSocket(point Vector2, gate *canvasGate) *in
 
 }
 
-func (canvas *Canvas) isHoveringOutputSocket(point Vector2, gate *canvasGate) *outputSocket {
-	for i := outputSocket(0); i < gate.n_outputs; i++ {
+func (canvas *Canvas) isHoveringOutputSocket(point Vector2, gate *canvasGate) *outputSocketIndex {
+	for i := outputSocketIndex(0); i < gate.n_outputs; i++ {
 		center := gate.getOuputSocketPlacement(i)
 		hover := CheckCollisionPointCircle(point, center, socketRadius)
 		if hover {
@@ -382,13 +407,6 @@ func (canvas *Canvas) isHoveringOutputSocket(point Vector2, gate *canvasGate) *o
 	}
 	return nil
 }
-
-// func (canvas *Canvas) checkLinkDrag(gate *canvasGate, socket socketID) {
-// 	if IsMouseButtonDown(MouseButtonLeft) {
-// 		canvas.state = creatingLink
-// 		canvas.contextLink = newCanvasLink(gate, socket)
-// 	}
-// }
 
 func (canvas *Canvas) idleState() {
 	mouse := GetMousePosition()
@@ -400,16 +418,39 @@ func (canvas *Canvas) idleState() {
 			canvas.checkGateDelete(i)
 		}
 
-		p := canvas.isHoveringOutputSocket(mouse, gate)
-		if p != nil && !hoveringGate {
-			// canvas.checkLinkDrag()
-
+		outputSocketIndex := canvas.isHoveringOutputSocket(mouse, gate)
+		if outputSocketIndex != nil && !hoveringGate {
 			if IsMouseButtonDown(MouseButtonLeft) {
 				canvas.state = creatingLink
-				canvas.contextLink = &canvasLink{fromGate: gate, fromSocket: *p}
-				log.Println("New link")
+				canvas.contextLink = &canvasLink{fromSocket: &gate.outputSockets[*outputSocketIndex]}
 			}
 		}
+
+		inputSocketIndex := canvas.isHoveringInputSocket(mouse, gate)
+		if inputSocketIndex != nil && !hoveringGate {
+			if IsMouseButtonDown(MouseButtonLeft) {
+
+				toSocket := &gate.inputSockets[*inputSocketIndex]
+
+				// option 1: socket does not have link
+				if toSocket.link == nil {
+					return
+				}
+
+				// option 2: socket has link
+				fromSocket := toSocket.link
+				for i, link := range fromSocket.links {
+					if link == toSocket {
+						fromSocket.links = removeElement(fromSocket.links, i)
+						toSocket.link = nil
+						canvas.contextLink = &canvasLink{fromSocket: fromSocket}
+						canvas.state = creatingLink
+						break
+					}
+				}
+			}
+		}
+
 	}
 
 	canvas.checkCanvasDrag()
@@ -441,11 +482,15 @@ func (canvas *Canvas) createLinkState() {
 	mouse := GetMousePosition()
 	mouse = GetScreenToWorld2D(mouse, canvas.canvasCamera)
 	for _, gate := range canvas.gates {
-		i := canvas.isHoveringInputSocket(mouse, gate)
-		if i != nil {
-			canvas.contextLink.toGate = gate
-			canvas.contextLink.toSocket = *i
-			gate.links = append(gate.links, canvas.contextLink)
+		inputSocketIndex := canvas.isHoveringInputSocket(mouse, gate)
+		if inputSocketIndex != nil {
+			toSocket := &gate.inputSockets[*inputSocketIndex]
+			fromSocket := canvas.contextLink.fromSocket
+
+			fromSocket.links = append(fromSocket.links, toSocket)
+			toSocket.link = fromSocket
+			canvas.contextLink = nil
+			break
 		}
 	}
 
