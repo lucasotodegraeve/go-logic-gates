@@ -235,14 +235,6 @@ func (canvas *Canvas) drawGate(gate *canvasGate) {
 		textColor = Black
 		fillColor = DarkGray
 		strokeColor = Gray
-		// if gate.logic != Out && gate.outputs[0] == false {
-		// 	strokeColor = Red
-		// }
-		// if gate.logic == Out && gate.inputs[0] == false {
-		// 	strokeColor = Red
-		// } else {
-		// 	strokeColor = Green
-		// }
 	}
 	drawNamedRectangle(NewRectangle(gate.position.X-gateWidth/2, gate.position.Y-gateHeight/2, gateWidth, gateHeight), gate.logic.String(), fillColor, strokeColor, textColor)
 	canvas.drawSockets(gate)
@@ -290,7 +282,7 @@ func drawNamedRectangle(rect Rectangle, text string, stroke color.RGBA, fill col
 
 func (canvas *Canvas) drawGates() {
 	for _, g := range canvas.gates {
-		if canvas.currentScreen == runner && g.logic == Switch {
+		if canvas.currentScreen == runner && (g.logic == Switch || g.logic == Out) {
 			continue
 		}
 		canvas.drawGate(g)
@@ -356,7 +348,7 @@ func (canvas *Canvas) drawAngledLine(from Vector2, to Vector2, color color.RGBA)
 	DrawLineEx(to, to_offset, linkStroke, Black)
 	DrawLineEx(from_offset, to_offset, linkStroke, Black)
 
-	if canvas.currentScreen == runner && canvas.runnerState == propagateNext {
+	if canvas.currentScreen == runner {
 		head := Vector2Distance(from, from_offset)
 		tail := Vector2Distance(to, to_offset)
 		body := Vector2Distance(from_offset, to_offset)
@@ -655,17 +647,11 @@ func (canvas *Canvas) drawAttached() {
 }
 
 func (canvas *Canvas) step() {
-	switch canvas.runnerState {
-	case evaluateNext:
-		for _, gate := range canvas.gates {
-			gate.evaluate()
-		}
-		canvas.runnerState = propagateNext
-	case propagateNext:
-		for _, gate := range canvas.gates {
-			gate.propagate()
-		}
-		canvas.runnerState = evaluateNext
+	for _, gate := range canvas.gates {
+		gate.propagate()
+	}
+	for _, gate := range canvas.gates {
+		gate.evaluate()
 	}
 }
 
@@ -721,37 +707,44 @@ func (canvas *Canvas) runnerScreen() {
 		}
 	}
 
+	canvas.checkSwitches()
 	canvas.draw()
-	canvas.drawSwitches()
+	canvas.drawSpecialGates()
 }
 
-func (canvas *Canvas) drawSwitches() {
-	BeginTextureMode(canvas.canvasRenderTexture)
-	BeginMode2D(canvas.canvasCamera)
+func (canvas *Canvas) checkSwitches() {
 	mouse := GetMousePosition()
 	mouse = GetScreenToWorld2D(mouse, canvas.canvasCamera)
 	for _, gate := range canvas.gates {
 		if gate.logic == Switch {
 			rect := NewRectangle(gate.position.X-gateWidth/2, gate.position.Y-gateHeight/2, gateWidth, gateHeight)
-			canvas.drawSockets(gate)
 			hover := CheckCollisionPointRec(mouse, rect)
 			click := IsMouseButtonPressed(MouseButtonLeft)
-
 			if hover && click {
 				gate.outputs[0] = !gate.outputs[0]
 			}
+		}
+	}
+
+}
+
+func (canvas *Canvas) drawSpecialGates() {
+	BeginTextureMode(canvas.canvasRenderTexture)
+	BeginMode2D(canvas.canvasCamera)
+	for _, gate := range canvas.gates {
+		if gate.logic == Switch || gate.logic == Out {
+			rect := NewRectangle(gate.position.X-gateWidth/2, gate.position.Y-gateHeight/2, gateWidth, gateHeight)
+			canvas.drawSockets(gate)
 
 			var strokeColor color.RGBA
+			if gate.logic == Switch {
+				strokeColor = canvas.getSocketColor(gate.outputs, 0)
+			}
+			if gate.logic == Out {
+				strokeColor = canvas.getSocketColor(gate.inputs, 0)
+			}
 			fillColor := Gray
-			output := gate.outputs[0]
-			if output == true {
-				strokeColor = Green
-			}
-			if output == false {
-				strokeColor = Red
-			}
-
-			drawNamedRectangle(rect, "SWITCH", strokeColor, fillColor, Black)
+			drawNamedRectangle(rect, gate.logic.String(), strokeColor, fillColor, Black)
 		}
 	}
 	EndMode2D()
