@@ -60,6 +60,7 @@ type inputSocketIndex socketIndex
 type outputSocketIndex socketIndex
 
 type CanvasState int32
+type runnerState int32
 
 const (
 	idle CanvasState = iota
@@ -67,6 +68,11 @@ const (
 	attached
 	movingGate
 	creatingLink
+)
+
+const (
+	evaluateNext runnerState = iota
+	propagateNext
 )
 
 const screenWidth = 800
@@ -110,6 +116,7 @@ type canvasLink struct {
 type Canvas struct {
 	currentScreen       Screen
 	state               CanvasState
+	runnerState         runnerState
 	guiRenderTexture    RenderTexture2D
 	canvasCamera        Camera2D
 	canvasRenderTexture RenderTexture2D
@@ -222,34 +229,48 @@ func (canvas *Canvas) drawGate(gate *canvasGate) {
 	} else {
 		textColor = Black
 		fillColor = DarkGray
-		if gate.outputs[0] == false {
-			strokeColor = Red
-		} else {
-			strokeColor = Green
-		}
+		strokeColor = Gray
+		// if gate.logic != Out && gate.outputs[0] == false {
+		// 	strokeColor = Red
+		// }
+		// if gate.logic == Out && gate.inputs[0] == false {
+		// 	strokeColor = Red
+		// } else {
+		// 	strokeColor = Green
+		// }
 	}
 	drawNamedRectangle(NewRectangle(gate.position.X-gateWidth/2, gate.position.Y-gateHeight/2, gateWidth, gateHeight), gate.logic.String(), fillColor, strokeColor, textColor)
-	gate.drawSockets()
+	canvas.drawSockets(gate)
 }
 
-func (gate *canvasGate) drawSockets() {
+func (canvas *Canvas) getSocketColor(values []bool, i socketIndex) color.RGBA {
+	var color color.RGBA
+	if canvas.currentScreen == runner && values[i] == true {
+		color = Green
+	}
+	if canvas.currentScreen == runner && values[i] == false {
+		color = Red
+	}
+	if canvas.currentScreen == builder {
+		color = DarkGray
+	}
+	return color
+}
+
+func (canvas *Canvas) drawSockets(gate *canvasGate) {
 	var segments int32 = 5
 	for i := inputSocketIndex(0); i < gate.n_inputs; i++ {
 		pos := gate.getInputSocketPlacement(i)
-		DrawCircleSector(pos, socketRadius, 90, 270, segments, DarkGray)
+		color := canvas.getSocketColor(gate.inputs, socketIndex(i))
+		DrawCircleSector(pos, socketRadius, 90, 270, segments, color)
 	}
 	for i := outputSocketIndex(0); i < gate.n_outputs; i++ {
 		pos := gate.getOuputSocketPlacement(i)
-		DrawCircleSector(pos, socketRadius, -90, 90, segments, DarkGray)
+		color := canvas.getSocketColor(gate.outputs, socketIndex(i))
+		DrawCircleSector(pos, socketRadius, -90, 90, segments, color)
 	}
 
 }
-
-// func (canvas *Canvas) drawSelected() {
-// 	if canvas.selected != nil {
-// 		DrawRectangleLines(int32(canvas.selected.position.X-gateWidth/2), int32(canvas.selected.position.Y-gateHeight/2), int32(gateWidth), int32(gateHeight), Red)
-// 	}
-// }
 
 func drawNamedRectangle(rect Rectangle, text string, stroke color.RGBA, fill color.RGBA, textColor color.RGBA) {
 	var strokeSize float32 = 5.0
@@ -261,8 +282,6 @@ func drawNamedRectangle(rect Rectangle, text string, stroke color.RGBA, fill col
 	offset_y := (rect.Height - v.Y) / 2
 	DrawText(text, int32(rect.X+offset_x), int32(rect.Y+offset_y), int32(textSize), textColor)
 }
-
-func drawSwitch() {}
 
 func (canvas *Canvas) drawGates() {
 	for _, g := range canvas.gates {
@@ -578,13 +597,61 @@ func (canvas *Canvas) drawAttached() {
 	canvas.drawGate(canvas.contextGate)
 }
 
+func (canvas *Canvas) step() {
+	switch canvas.runnerState {
+	case evaluateNext:
+		for _, gate := range canvas.gates {
+			gate.evaluate()
+		}
+		canvas.runnerState = propagateNext
+	case propagateNext:
+		for _, gate := range canvas.gates {
+			gate.propagate()
+		}
+		canvas.runnerState = evaluateNext
+	}
+}
+
+func (gate *canvasGate) evaluate() {
+	switch gate.logic {
+	case And:
+		gate.outputs[0] = gate.inputs[0] && gate.inputs[1]
+	case Or:
+		gate.outputs[0] = gate.inputs[0] || gate.inputs[1]
+	case Not:
+		gate.outputs[0] = !gate.inputs[0]
+	case Nand:
+		gate.outputs[0] = !(gate.inputs[0] && gate.inputs[1])
+	case Nor:
+		gate.outputs[0] = !(gate.inputs[0] || gate.inputs[1])
+	case Xor:
+		gate.outputs[0] = gate.inputs[0] != gate.inputs[1]
+	case Switch:
+	case Out:
+	default:
+		panic(fmt.Sprintf("Gate of type %v, does not implement evaluate!", gate.logic))
+	}
+}
+
+func (gate *canvasGate) propagate() {
+	for _, fromSocket := range gate.outputSockets {
+		for _, toSocket := range fromSocket.links {
+			i := toSocket.index
+			j := fromSocket.index
+			toSocket.gate.inputs[i] = fromSocket.gate.outputs[j]
+		}
+	}
+}
+
 func (canvas *Canvas) runnerScreen() {
 
 	BeginTextureMode(canvas.guiRenderTexture)
 	button := Button(NewRectangle(0, 0, buttonWidth, canvasButtonHeight), "Step")
-	if button {
-	}
 	EndTextureMode()
+
+	if button {
+		canvas.step()
+	}
 
 	switch canvas.state {
 	case idle:
@@ -609,7 +676,7 @@ func (canvas *Canvas) drawSwitches() {
 	for _, gate := range canvas.gates {
 		if gate.logic == Switch {
 			rect := NewRectangle(gate.position.X-gateWidth/2, gate.position.Y-gateHeight/2, gateWidth, gateHeight)
-			gate.drawSockets()
+			canvas.drawSockets(gate)
 			hover := CheckCollisionPointRec(mouse, rect)
 			click := IsMouseButtonPressed(MouseButtonLeft)
 
@@ -618,14 +685,13 @@ func (canvas *Canvas) drawSwitches() {
 			}
 
 			var strokeColor color.RGBA
-			var fillColor color.RGBA
+			fillColor := Gray
 			output := gate.outputs[0]
 			if output == true {
-				strokeColor = DarkGray
-				fillColor = Green
-			} else {
-				strokeColor = DarkGray
-				fillColor = Red
+				strokeColor = Green
+			}
+			if output == false {
+				strokeColor = Red
 			}
 
 			drawNamedRectangle(rect, "SWITCH", strokeColor, fillColor, Black)
