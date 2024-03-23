@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"image/color"
+	"math"
 
 	. "github.com/gen2brain/raylib-go/raylib"
 )
@@ -85,6 +86,8 @@ const buttonMargin = 10
 const socketRadius float32 = 12
 const linkStroke float32 = 10
 const linkLead = 40
+const currentSpacing = 20
+const currentRadius = 3
 
 type canvasInputSocket struct {
 	gate  *canvasGate
@@ -124,6 +127,7 @@ type Canvas struct {
 	gates               []*canvasGate
 	contextGate         *canvasGate
 	contextLink         *canvasLink
+	frame               int
 }
 
 func newCanvasLink() *canvasLink {
@@ -315,22 +319,35 @@ func (canvas *Canvas) drawLinks() {
 		from := canvas.contextLink.fromSocket.gate.getOuputSocketPlacement(i)
 		to := GetMousePosition()
 		to = GetScreenToWorld2D(to, canvas.canvasCamera)
-		canvas.drawAngledLine(from, to)
+		canvas.drawAngledLine(from, to, Red)
 	}
 
 	for _, gate := range canvas.gates {
 		for _, fromSocket := range gate.outputSockets {
 			from := gate.getOuputSocketPlacement(fromSocket.index)
 
+			color := Purple
+
+			if canvas.currentScreen == runner {
+				output := gate.outputs[fromSocket.index]
+				switch output {
+				case true:
+					color = Green
+				case false:
+					color = Red
+				}
+			}
+
 			for _, toSocket := range fromSocket.links {
 				to := toSocket.gate.getInputSocketPlacement(toSocket.index)
-				canvas.drawAngledLine(from, to)
+
+				canvas.drawAngledLine(from, to, color)
 			}
 		}
 	}
 }
 
-func (canvas *Canvas) drawAngledLine(from Vector2, to Vector2) {
+func (canvas *Canvas) drawAngledLine(from Vector2, to Vector2, color color.RGBA) {
 	factor := Vector2Distance(from, to) / (2 * linkLead)
 	factor = Clamp(factor, 0, 1)
 	from_offset := Vector2Add(from, Vector2{X: factor * linkLead, Y: 0})
@@ -338,6 +355,35 @@ func (canvas *Canvas) drawAngledLine(from Vector2, to Vector2) {
 	DrawLineEx(from, from_offset, linkStroke, Black)
 	DrawLineEx(to, to_offset, linkStroke, Black)
 	DrawLineEx(from_offset, to_offset, linkStroke, Black)
+
+	if canvas.currentScreen == runner && canvas.runnerState == propagateNext {
+		head := Vector2Distance(from, from_offset)
+		tail := Vector2Distance(to, to_offset)
+		body := Vector2Distance(from_offset, to_offset)
+		total_distance := head + body + tail
+
+		n_points := int(total_distance / currentSpacing)
+		for i := 0; i < n_points; i++ {
+			t_offset := float32(i) / float32(n_points)
+			t := t_offset + float32(canvas.frame)/1000
+			t = float32(float64(t) - math.Floor(float64(t)))
+			offset := total_distance * t
+
+			var c Vector2
+			if offset < head {
+				c = Vector2Lerp(from, from_offset, offset/head)
+			}
+			if head <= offset && offset < head+body {
+				c = Vector2Lerp(from_offset, to_offset, (offset-head)/body)
+			}
+			if head+body < offset {
+				c = Vector2Lerp(to_offset, to, (offset-head-body)/tail)
+			}
+			DrawCircle(int32(c.X), int32(c.Y), currentRadius, color)
+		}
+
+	}
+
 }
 
 func (canvas *Canvas) builderScreen() {
@@ -750,5 +796,7 @@ func main() {
 		DrawTextureRec(canvas.canvasRenderTexture.Texture, NewRectangle(0, 0, screenWidth, -screenHeight), Vector2{X: 0, Y: 0}, White)
 		DrawTextureRec(canvas.guiRenderTexture.Texture, NewRectangle(0, 0, screenWidth, -canvasButtonHeight), Vector2{X: 0, Y: 0}, White)
 		EndDrawing()
+
+		canvas.frame += 1
 	}
 }
