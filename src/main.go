@@ -84,6 +84,7 @@ const buttonWidth = 90
 const buttonMargin = 10
 const socketRadius float32 = 12
 const linkStroke float32 = 10
+const linkLead = 40
 
 type canvasInputSocket struct {
 	gate  *canvasGate
@@ -311,10 +312,10 @@ func (canvas *Canvas) drawGrid() {
 func (canvas *Canvas) drawLinks() {
 	if canvas.state == creatingLink {
 		i := canvas.contextLink.fromSocket.index
-		a := canvas.contextLink.fromSocket.gate.getOuputSocketPlacement(i)
-		mouse := GetMousePosition()
-		mouse = GetScreenToWorld2D(mouse, canvas.canvasCamera)
-		DrawLineEx(a, mouse, linkStroke, Black)
+		from := canvas.contextLink.fromSocket.gate.getOuputSocketPlacement(i)
+		to := GetMousePosition()
+		to = GetScreenToWorld2D(to, canvas.canvasCamera)
+		canvas.drawAngledLine(from, to)
 	}
 
 	for _, gate := range canvas.gates {
@@ -323,10 +324,20 @@ func (canvas *Canvas) drawLinks() {
 
 			for _, toSocket := range fromSocket.links {
 				to := toSocket.gate.getInputSocketPlacement(toSocket.index)
-				DrawLineEx(from, to, linkStroke, Black)
+				canvas.drawAngledLine(from, to)
 			}
 		}
 	}
+}
+
+func (canvas *Canvas) drawAngledLine(from Vector2, to Vector2) {
+	factor := Vector2Distance(from, to) / (2 * linkLead)
+	factor = Clamp(factor, 0, 1)
+	from_offset := Vector2Add(from, Vector2{X: factor * linkLead, Y: 0})
+	to_offset := Vector2Add(to, Vector2{X: -factor * linkLead, Y: 0})
+	DrawLineEx(from, from_offset, linkStroke, Black)
+	DrawLineEx(to, to_offset, linkStroke, Black)
+	DrawLineEx(from_offset, to_offset, linkStroke, Black)
 }
 
 func (canvas *Canvas) builderScreen() {
