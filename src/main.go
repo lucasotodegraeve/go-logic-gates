@@ -98,6 +98,8 @@ type canvasGate struct {
 	outputSockets []canvasOutputSocket
 	inputSockets  []canvasInputSocket
 	position      Vector2
+	inputs        []bool
+	outputs       []bool
 }
 
 type canvasLink struct {
@@ -106,6 +108,7 @@ type canvasLink struct {
 }
 
 type Canvas struct {
+	currentScreen       Screen
 	state               CanvasState
 	guiRenderTexture    RenderTexture2D
 	canvasCamera        Camera2D
@@ -137,6 +140,8 @@ func newCanvasGate(g Logic, n_inputs inputSocketIndex, n_outputs outputSocketInd
 		inputSockets:  make([]canvasInputSocket, n_inputs),
 		outputSockets: make([]canvasOutputSocket, n_outputs),
 		position:      Vector2{X: 0, Y: 0},
+		inputs:        make([]bool, n_inputs),
+		outputs:       make([]bool, n_outputs),
 	}
 
 	for i := inputSocketIndex(0); i < n_inputs; i++ {
@@ -151,6 +156,7 @@ func newCanvasGate(g Logic, n_inputs inputSocketIndex, n_outputs outputSocketInd
 
 func NewCanvas() Canvas {
 	return Canvas{
+		currentScreen:       builder,
 		guiRenderTexture:    LoadRenderTexture(screenWidth, canvasButtonHeight),
 		canvasCamera:        Camera2D{Zoom: 1},
 		canvasRenderTexture: LoadRenderTexture(screenWidth, screenHeight),
@@ -205,10 +211,29 @@ func removeElement[T any](list []*T, i int) []*T {
 	return list
 }
 
-func drawGate(gate *canvasGate) {
-	drawNamedRectangle(NewRectangle(gate.position.X-gateWidth/2, gate.position.Y-gateHeight/2, gateWidth, gateHeight), gate.logic.String(), DarkGray, Gray, Black)
-	var segments int32 = 5
+func (canvas *Canvas) drawGate(gate *canvasGate) {
+	var fillColor color.RGBA
+	var strokeColor color.RGBA
+	var textColor color.RGBA
+	if canvas.currentScreen == builder {
+		fillColor = DarkGray
+		strokeColor = Gray
+		textColor = Black
+	} else {
+		textColor = Black
+		fillColor = DarkGray
+		if gate.outputs[0] == false {
+			strokeColor = Red
+		} else {
+			strokeColor = Green
+		}
+	}
+	drawNamedRectangle(NewRectangle(gate.position.X-gateWidth/2, gate.position.Y-gateHeight/2, gateWidth, gateHeight), gate.logic.String(), fillColor, strokeColor, textColor)
+	gate.drawSockets()
+}
 
+func (gate *canvasGate) drawSockets() {
+	var segments int32 = 5
 	for i := inputSocketIndex(0); i < gate.n_inputs; i++ {
 		pos := gate.getInputSocketPlacement(i)
 		DrawCircleSector(pos, socketRadius, 90, 270, segments, DarkGray)
@@ -217,6 +242,7 @@ func drawGate(gate *canvasGate) {
 		pos := gate.getOuputSocketPlacement(i)
 		DrawCircleSector(pos, socketRadius, -90, 90, segments, DarkGray)
 	}
+
 }
 
 // func (canvas *Canvas) drawSelected() {
@@ -240,7 +266,10 @@ func drawSwitch() {}
 
 func (canvas *Canvas) drawGates() {
 	for _, g := range canvas.gates {
-		drawGate(g)
+		if canvas.currentScreen == runner && g.logic == Switch {
+			continue
+		}
+		canvas.drawGate(g)
 	}
 }
 
@@ -342,6 +371,27 @@ func gateButton(rect Rectangle, s string) bool {
 	}
 	drawNamedRectangle(rect, s, lineColor, color, DarkGray)
 	return inside && down
+}
+
+func Button(rect Rectangle, s string) bool {
+	mouse := GetMousePosition()
+	inside := CheckCollisionPointRec(mouse, rect)
+	release := IsMouseButtonReleased(MouseButtonLeft)
+	color := LightGray
+	lineColor := Gray
+
+	if inside {
+		color = SkyBlue
+		lineColor = Blue
+
+		if release {
+			color = Blue
+			lineColor = DarkBlue
+		}
+
+	}
+	drawNamedRectangle(rect, s, lineColor, color, DarkGray)
+	return inside && release
 }
 
 func (canvas *Canvas) checkCanvasDrag() {
@@ -525,11 +575,64 @@ func (canvas *Canvas) drawAttached() {
 	}
 	mouse := GetScreenToWorld2D(GetMousePosition(), canvas.canvasCamera)
 	canvas.contextGate.position = mouse
-	drawGate(canvas.contextGate)
+	canvas.drawGate(canvas.contextGate)
 }
 
 func (canvas *Canvas) runnerScreen() {
+
+	BeginTextureMode(canvas.guiRenderTexture)
+	button := Button(NewRectangle(0, 0, buttonWidth, canvasButtonHeight), "Step")
+	if button {
+	}
+	EndTextureMode()
+
+	switch canvas.state {
+	case idle:
+		canvas.checkCanvasDrag()
+		canvas.canvasZoom()
+	case dragging:
+		canvas.canvasDrag()
+		if IsMouseButtonReleased(MouseButtonLeft) {
+			canvas.state = idle
+		}
+	}
+
 	canvas.draw()
+	canvas.drawSwitches()
+}
+
+func (canvas *Canvas) drawSwitches() {
+	BeginTextureMode(canvas.canvasRenderTexture)
+	BeginMode2D(canvas.canvasCamera)
+	mouse := GetMousePosition()
+	mouse = GetScreenToWorld2D(mouse, canvas.canvasCamera)
+	for _, gate := range canvas.gates {
+		if gate.logic == Switch {
+			rect := NewRectangle(gate.position.X-gateWidth/2, gate.position.Y-gateHeight/2, gateWidth, gateHeight)
+			gate.drawSockets()
+			hover := CheckCollisionPointRec(mouse, rect)
+			click := IsMouseButtonPressed(MouseButtonLeft)
+
+			if hover && click {
+				gate.outputs[0] = !gate.outputs[0]
+			}
+
+			var strokeColor color.RGBA
+			var fillColor color.RGBA
+			output := gate.outputs[0]
+			if output == true {
+				strokeColor = DarkGray
+				fillColor = Green
+			} else {
+				strokeColor = DarkGray
+				fillColor = Red
+			}
+
+			drawNamedRectangle(rect, "SWITCH", strokeColor, fillColor, Black)
+		}
+	}
+	EndMode2D()
+	EndTextureMode()
 }
 
 func (canvas *Canvas) clearGui() {
@@ -544,23 +647,21 @@ func main() {
 
 	SetTargetFPS(60)
 
-	currentScreen := builder
 	canvas := NewCanvas()
 
 	for !WindowShouldClose() {
 
 		if IsKeyPressed(KeyEnter) {
-			fmt.Println("switch")
-			switch currentScreen {
+			canvas.clearGui()
+			switch canvas.currentScreen {
 			case builder:
-				currentScreen = runner
-				canvas.clearGui()
+				canvas.currentScreen = runner
 			case runner:
-				currentScreen = builder
+				canvas.currentScreen = builder
 			}
 		}
 
-		switch currentScreen {
+		switch canvas.currentScreen {
 		case builder:
 			canvas.builderScreen()
 		case runner:
