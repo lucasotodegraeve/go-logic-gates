@@ -5,3 +5,6 @@ _default:
 
 watch target:
 	watchexec -c clear -e go -r go run {{target}}
+
+clean:
+	rm main
